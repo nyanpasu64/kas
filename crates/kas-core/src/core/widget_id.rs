@@ -10,21 +10,22 @@ use std::fmt;
 use std::iter::once;
 use std::mem::size_of;
 use std::num::NonZeroU64;
+use std::ops::BitXor;
 use std::sync::Mutex;
 
 /// Widget identifier
 ///
 /// All widgets are assigned an identifier which is unique within the window.
-/// This type may be tested for equality and order.
+/// Values may be tested for equality.
 ///
-/// This type is small and cheap to copy. Internally it is "NonZero", thus
+/// This type is small and cheap to copy. Internally it uses `NonZeroU?`, thus
 /// `Option<WidgetId>` is a free extension (requires no extra memory).
 ///
 /// Identifiers are assigned when configured and when re-configured
 /// (via [`crate::TkAction::RECONFIGURE`]). Since user-code is not notified of a
 /// re-configure, user-code should not store a `WidgetId`.
 #[derive(Clone, Copy, Hash, Eq)]
-pub struct WidgetId(NonZeroU64);
+pub struct WidgetId(NonZeroU64, u64);
 
 /// The first byte (head) controls interpretation of the rest
 const MASK_HEAD: u64 = 0xC000_0000_0000_0000;
@@ -81,11 +82,20 @@ impl Iterator for BitsIter {
     }
 }
 
+fn fxhash(state: u64, value: u64) -> u64 {
+    // FxHash algorithm, copied from rustc_hash crate
+    const K: u64 = 0x517cc1b727220a95;
+    state.rotate_left(5).bitxor(value).wrapping_mul(K)
+}
+
 impl WidgetId {
     /// Identifier of the window
-    pub(crate) const ROOT: WidgetId = WidgetId(unsafe { NonZeroU64::new_unchecked(USE_BITS) });
+    pub(crate) const ROOT: WidgetId = WidgetId(
+        unsafe { NonZeroU64::new_unchecked(USE_BITS) },
+        0x6ce782166bcbc231,
+    );
 
-    const INVALID: WidgetId = WidgetId(unsafe { NonZeroU64::new_unchecked(MASK_REST) });
+    const INVALID: WidgetId = WidgetId(unsafe { NonZeroU64::new_unchecked(MASK_REST) }, 0);
 
     /// Returns true if `self` equals `id` or if `id` is a descendant of `self`
     pub fn is_ancestor_of(self, id: Self) -> bool {
@@ -174,6 +184,8 @@ impl WidgetId {
     /// Note: this is not a getter method. Calling multiple times with the same
     /// `index` may or may not return the same value!
     pub fn make_child(self, index: usize) -> Self {
+        let hash = fxhash(self.1, index.cast());
+
         let self_id = self.0.get();
         let mut path = None;
         if (self_id & USE_BITS) != 0 {
@@ -198,7 +210,7 @@ impl WidgetId {
                 let len = (block_len as u64 + used_blocks as u64) << SHIFT_LEN;
                 let rest = y << 4 * avail_blocks - shift;
                 let id = USE_BITS | len | (self_id & MASK_REST) | rest;
-                return WidgetId(NonZeroU64::new(id).unwrap());
+                return WidgetId(NonZeroU64::new(id).unwrap(), hash);
             } else {
                 path = Some(BitsIter::new(self_id).chain(once(index)).collect());
             }
@@ -222,7 +234,7 @@ impl WidgetId {
 
         db.push(path);
 
-        WidgetId(NonZeroU64::new(USE_DB | id).unwrap())
+        WidgetId(NonZeroU64::new(USE_DB | id).unwrap(), hash)
     }
 
     /// Convert `Option<WidgetId>` to `u64`
@@ -237,7 +249,8 @@ impl WidgetId {
     ///
     /// This always "succeeds", though the result may not identify any widget.
     pub fn opt_from_u64(n: u64) -> Option<WidgetId> {
-        NonZeroU64::new(n).map(|nz| WidgetId(nz))
+        // FIXME: incorrect hash
+        NonZeroU64::new(n).map(|nz| WidgetId(nz, 0))
     }
 }
 
@@ -253,7 +266,7 @@ impl std::cmp::PartialEq for WidgetId {
                 let child_i = usize::conv(rhs_id & MASK_REST);
                 db[self_i] == db[child_i]
             }
-            _ => self_id == rhs_id,
+            _ => self_id == rhs_id && self.1 == rhs.1,
         }
     }
 }
