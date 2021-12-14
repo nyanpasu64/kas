@@ -258,7 +258,7 @@ widget! {
                     _ => return Response::Unhandled,
                 }
             } else {
-                debug_assert!(self.handle.id().is_ancestor_of(id));
+                debug_assert!(self.handle.is_ancestor_of(id));
                 match self.handle.send(mgr, id, event).try_into() {
                     Ok(res) => return res,
                     Err(offset) => offset,

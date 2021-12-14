@@ -193,7 +193,21 @@ pub trait WidgetChildren: WidgetCore {
     /// This function assumes that `id` is a valid widget.
     #[inline]
     fn is_ancestor_of(&self, id: WidgetId) -> bool {
-        self.id().is_ancestor_of(id)
+        if let Some(result) = self.id().is_ancestor_of(id) {
+            return result;
+        }
+
+        // In other cases, we must compute the result the hard way
+        for i in 0..self.num_children() {
+            if self
+                .get_child(i)
+                .map(|w| w.is_ancestor_of(id))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+        false
     }
 
     /// Find the child which is an ancestor of this `id`, if any

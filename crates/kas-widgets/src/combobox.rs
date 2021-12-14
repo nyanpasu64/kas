@@ -150,7 +150,7 @@ widget! {
             if id == self.id() {
                 Manager::handle_generic(self, mgr, event)
             } else {
-                debug_assert!(self.popup.id().is_ancestor_of(id));
+                debug_assert!(self.popup.is_ancestor_of(id));
 
                 if let Event::NavFocus(key_focus) = event {
                     if self.popup_id.is_none() {

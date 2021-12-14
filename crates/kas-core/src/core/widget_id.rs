@@ -98,22 +98,25 @@ impl WidgetId {
     const INVALID: WidgetId = WidgetId(unsafe { NonZeroU64::new_unchecked(MASK_REST) }, 0);
 
     /// Returns true if `self` equals `id` or if `id` is a descendant of `self`
-    pub fn is_ancestor_of(self, id: Self) -> bool {
+    ///
+    /// Returns `None` if the values do not contain sufficient information to
+    /// determine the result.
+    pub fn is_ancestor_of(self, id: Self) -> Option<bool> {
         let self_id = self.0.get();
         let child_id = id.0.get();
         if (child_id & USE_BITS) != 0 {
             let self_blocks = block_len(self_id);
             let child_blocks = block_len(child_id);
             if (self_id & USE_BITS) == 0 || self_blocks > child_blocks {
-                return false;
+                return Some(false);
             }
 
             let shift = 4 * (BLOCKS - self_blocks);
-            return (self_id & MASK_REST) >> shift == (child_id & MASK_REST) >> shift;
+            return Some((self_id & MASK_REST) >> shift == (child_id & MASK_REST) >> shift);
         }
 
         if (child_id & USE_DB) == 0 {
-            return false;
+            return Some(false);
         }
 
         let db = DB.lock().unwrap();
@@ -121,12 +124,12 @@ impl WidgetId {
 
         if (self_id & USE_BITS) != 0 {
             let iter = BitsIter::new(self_id);
-            iter.zip(db[child_i].iter()).all(|(a, b)| a == *b)
+            Some(iter.zip(db[child_i].iter()).all(|(a, b)| a == *b))
         } else if (self_id & USE_DB) != 0 {
             let self_i = usize::conv(self_id & MASK_REST);
-            db[child_i].starts_with(&db[self_i])
+            Some(db[child_i].starts_with(&db[self_i]))
         } else {
-            false
+            Some(false)
         }
     }
 
